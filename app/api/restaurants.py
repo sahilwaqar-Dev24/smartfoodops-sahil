@@ -50,6 +50,29 @@ def get_restaurant(restaurant_id: int, db: Session = Depends(get_db)):
     return restaurant
 
 
+@router.patch("/{restaurant_id}", response_model=RestaurantResponse)
+def update_restaurant(
+    restaurant_id: int,
+    restaurant_in: RestaurantUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_restaurant_admin)
+):
+    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+    if restaurant.owner_user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to edit this restaurant")
+
+    update_data = restaurant_in.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(restaurant, field, value)
+
+    db.add(restaurant)
+    db.commit()
+    db.refresh(restaurant)
+    return restaurant
+
+
 # --- Menu Category Endpoints ---
 
 @router.post("/{restaurant_id}/categories", response_model=MenuCategoryResponse, status_code=status.HTTP_201_CREATED)
@@ -115,3 +138,29 @@ def add_menu_item(
 @router.get("/categories/{category_id}/items", response_model=List[MenuItemResponse])
 def list_menu_items(category_id: int, db: Session = Depends(get_db)):
     return db.query(MenuItem).filter(MenuItem.category_id == category_id, MenuItem.is_available == True).all()
+
+
+@router.patch("/items/{item_id}", response_model=MenuItemResponse)
+def update_menu_item(
+    item_id: int,
+    item_in: MenuItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_restaurant_admin)
+):
+    menu_item = db.query(MenuItem).filter(MenuItem.id == item_id).first()
+    if not menu_item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Menu item not found")
+
+    category = db.query(MenuCategory).filter(MenuCategory.id == menu_item.category_id).first()
+    restaurant = db.query(Restaurant).filter(Restaurant.id == category.restaurant_id).first()
+    if restaurant.owner_user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to edit this item")
+
+    update_data = item_in.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(menu_item, field, value)
+
+    db.add(menu_item)
+    db.commit()
+    db.refresh(menu_item)
+    return menu_item
