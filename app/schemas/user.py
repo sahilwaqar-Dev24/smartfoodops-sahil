@@ -1,18 +1,19 @@
 from pydantic import BaseModel, EmailStr
+from typing import Optional
 from datetime import datetime
 
-class UserCreate(BaseModel):
+class UserBase(BaseModel):
     name: str
     email: EmailStr
-    password: str
-    role: str  # customer, restaurant_admin, rider
+    role: Optional[str] = "customer"
 
-class UserResponse(BaseModel):
+class UserCreate(UserBase):
+    password: str
+
+class UserResponse(UserBase):
     id: int
-    name: str
-    email: EmailStr
-    role: str
     is_active: bool
+    is_available: bool
     created_at: datetime
 
     class Config:
@@ -24,6 +25,6 @@ class Token(BaseModel):
     role: str
     user_id: int
 
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+class TokenData(BaseModel):
+    email: Optional[str] = None
+    role: Optional[str] = None

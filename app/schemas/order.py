@@ -1,23 +1,23 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
-from app.models.order import OrderStatus, PaymentStatus
+from app.models.order import OrderStatus
 
-
-# Customer request item (Customer sirf item_id aur quantity bhej sakta hai, unit_price server tay karega)
 class OrderItemCreate(BaseModel):
     menu_item_id: int
-    quantity: int = Field(gt=0, description="Quantity must be greater than zero")
+    quantity: int
 
-
-# Customer order create request
 class OrderCreate(BaseModel):
     restaurant_id: int
-    delivery_address: str = Field(min_length=5, description="Delivery address is required")
-    items: List[OrderItemCreate] = Field(min_items=1, description="Order must contain at least one item")
+    delivery_address: str
+    items: List[OrderItemCreate]
 
+class OrderStatusUpdate(BaseModel):
+    status: OrderStatus
 
-# Response item schema
+class OrderAssignRider(BaseModel):
+    rider_id: Optional[int] = None
+
 class OrderItemResponse(BaseModel):
     id: int
     menu_item_id: int
@@ -29,27 +29,24 @@ class OrderItemResponse(BaseModel):
     class Config:
         from_attributes = True
 
-
-# Status history schema
 class OrderStatusHistoryResponse(BaseModel):
     id: int
-    old_status: Optional[str]
+    old_status: Optional[str] = None
     new_status: str
-    changed_by_user_id: Optional[int]
+    changed_by_user_id: int
     changed_at: datetime
 
     class Config:
         from_attributes = True
 
-
-# Main Order Response schema
 class OrderResponse(BaseModel):
     id: int
     customer_id: int
     restaurant_id: int
+    rider_id: Optional[int] = None
     total_price: float
     status: OrderStatus
-    payment_status: PaymentStatus
+    payment_status: str
     delivery_address: str
     created_at: datetime
     updated_at: datetime
@@ -57,8 +54,3 @@ class OrderResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-# Order status update schema (Admin/Restaurant status change karne ke liye)
-class OrderStatusUpdate(BaseModel):
-    status: OrderStatus

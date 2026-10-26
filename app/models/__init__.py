@@ -1,6 +1,6 @@
 from app.models.user import User
 from app.models.restaurant import Restaurant, MenuCategory, MenuItem
-from app.models.order import Order, OrderItem, OrderStatusHistory, OrderStatus, PaymentStatus
+from app.models.order import Order, OrderItem, OrderStatus, OrderStatusHistory
 
 __all__ = [
     "User",
@@ -9,7 +9,6 @@ __all__ = [
     "MenuItem",
     "Order",
     "OrderItem",
-    "OrderStatusHistory",
     "OrderStatus",
-    "PaymentStatus",
+    "OrderStatusHistory"
 ]
