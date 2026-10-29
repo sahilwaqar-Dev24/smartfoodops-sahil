@@ -1,13 +1,13 @@
 from fastapi import FastAPI
 from app.core.config import settings
-from app.db.session import engine, Base
-import app.models  # Database tables register karne ke liye
 from app.api.health import router as health_router
 from app.api.auth import router as auth_router
 from app.api.restaurants import router as restaurants_router
 from app.api.orders import router as orders_router
+from app.api.analytics import router as analytics_router
+from app.db.session import engine, Base
 
-# Server startup par tables create karna
+# Create tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -16,11 +16,12 @@ app = FastAPI(
     description="SmartFoodOps - Core Food Ordering Backend API"
 )
 
-# Routers include karna
+# Include Routers
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(restaurants_router)
 app.include_router(orders_router)
+app.include_router(analytics_router)
 
 
 @app.get("/")
