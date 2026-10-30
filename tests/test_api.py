@@ -188,3 +188,22 @@ def test_analytics_rbac_guard(client, seeded_users):
         "/analytics/platform", headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == 403
+    # 13. Assistant: Recommendation Test
+def test_assistant_recommendation_success(client, seeded_restaurant):
+    payload = {"question": "I want a spicy burger", "max_price": 600.0}
+    response = client.post("/assistant/recommend", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["question"] == "I want a spicy burger"
+    assert "Zinger Burger" in data["reply"]
+    assert len(data["recommended_items"]) >= 1
+
+
+# 14. Assistant: No Match Fallback
+def test_assistant_no_match_fallback(client, seeded_restaurant):
+    payload = {"question": "sushi rolls", "max_price": 500.0}
+    response = client.post("/assistant/recommend", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert "couldn't find any menu items" in data["reply"]
+    assert len(data["recommended_items"]) == 0
