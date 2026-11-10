@@ -8,3 +8,9 @@ ENV/
 smartfoodops.db
 *.sqlite3
 .pytest_cache/
+smartfoodops.db
+*.db
+*.sqlite3
+__pycache__/
+*.pyc
+.pytest_cache/
