@@ -20,7 +20,7 @@ from app.services.order_service import (
     assign_rider_to_order
 )
 
-router = APIRouter()
+router = APIRouter(tags=["Orders"])
 
 @router.post("/", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
 def place_order(
@@ -43,7 +43,7 @@ def list_orders(
         return db.query(Order).filter(Order.rider_id == current_user.id).all()
     return []
 
-@router.get("/riders/available", response_model=List[UserResponse])
+@router.get("/riders/available", tags=["Riders"], response_model=List[UserResponse])
 def get_available_riders(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -60,7 +60,7 @@ def get_available_riders(
     ).all()
     return riders
 
-@router.patch("/riders/me/availability", response_model=UserResponse)
+@router.patch("/riders/me/availability", tags=["Riders"], response_model=UserResponse)
 def toggle_my_availability(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -84,12 +84,10 @@ def get_order_details(
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-
     if current_user.role == "customer" and order.customer_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access forbidden")
     elif current_user.role == "rider" and order.rider_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access forbidden")
-
     return order
 
 @router.post("/{order_id}/assign-rider", response_model=OrderResponse)
@@ -125,7 +123,6 @@ def get_order_history(
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-
     return (
         db.query(OrderStatusHistory)
         .filter(OrderStatusHistory.order_id == order_id)
