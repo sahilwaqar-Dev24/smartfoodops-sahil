@@ -48,34 +48,34 @@ The order lifecycle strictly enforces valid sequential status transitions. Skipp
 
 ```mermaid
 erDiagram
-    USERS ||--o{ RESTAURANTS : "owns"
-    USERS ||--o{ ORDERS : "places (customer)"
-    USERS ||--o{ ORDERS : "delivers (rider)"
-    USERS ||--o{ NOTIFICATIONS : "receives"
+    USER ||--o{ RESTAURANT : owns
+    USER ||--o{ ORDER : places
+    USER ||--o{ ORDER : delivers
+    USER ||--o{ NOTIFICATION : receives
     
-    RESTAURANTS ||--o{ MENU_CATEGORIES : "contains"
-    RESTAURANTS ||--o{ ORDERS : "receives"
+    RESTAURANT ||--o{ MENU_CATEGORY : contains
+    RESTAURANT ||--o{ ORDER : receives
     
-    MENU_CATEGORIES ||--o{ MENU_ITEMS : "groups"
+    MENU_CATEGORY ||--o{ MENU_ITEM : groups
     
-    ORDERS ||--o{ ORDER_ITEMS : "includes"
-    ORDERS ||--o{ ORDER_STATUS_HISTORY : "tracks"
-    ORDERS ||--o{ NOTIFICATIONS : "triggers"
+    ORDER ||--o{ ORDER_ITEM : includes
+    ORDER ||--o{ ORDER_STATUS_HISTORY : tracks
+    ORDER ||--o{ NOTIFICATION : triggers
     
-    MENU_ITEMS ||--o{ ORDER_ITEMS : "references"
+    MENU_ITEM ||--o{ ORDER_ITEM : references
 
-    USERS {
+    USER {
         int id PK
         string name
-        string email UK
+        string email
         string password_hash
-        string role "customer | restaurant_admin | rider"
+        string role
         boolean is_active
         boolean is_available
         datetime created_at
     }
 
-    RESTAURANTS {
+    RESTAURANT {
         int id PK
         int owner_user_id FK
         string name
@@ -86,14 +86,14 @@ erDiagram
         datetime created_at
     }
 
-    MENU_CATEGORIES {
+    MENU_CATEGORY {
         int id PK
         int restaurant_id FK
         string name
         int order_index
     }
 
-    MENU_ITEMS {
+    MENU_ITEM {
         int id PK
         int category_id FK
         string name
@@ -103,7 +103,7 @@ erDiagram
         int stock
     }
 
-    ORDERS {
+    ORDER {
         int id PK
         int customer_id FK
         int restaurant_id FK
@@ -115,7 +115,7 @@ erDiagram
         datetime created_at
     }
 
-    ORDER_ITEMS {
+    ORDER_ITEM {
         int id PK
         int order_id FK
         int menu_item_id FK
@@ -134,7 +134,7 @@ erDiagram
         datetime changed_at
     }
 
-    NOTIFICATIONS {
+    NOTIFICATION {
         int id PK
         int user_id FK
         int order_id FK
