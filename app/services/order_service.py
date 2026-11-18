@@ -17,61 +17,105 @@ VALID_TRANSITIONS = {
 }
 
 def create_order(db: Session, order_in: OrderCreate, customer_id: int) -> Order:
+    # 1. Restaurant check
     restaurant = db.query(Restaurant).filter(Restaurant.id == order_in.restaurant_id).first()
     if not restaurant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
 
+    if not restaurant.is_open:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Restaurant is currently closed and cannot accept orders"
+        )
+
+    # 2. Cart check
     if not order_in.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order must contain at least one item")
 
+    # Agar same item cart mein 2 baar aaye to quantity jama kar do
+    requested = {}
+    for item_data in order_in.items:
+        requested[item_data.menu_item_id] = requested.get(item_data.menu_item_id, 0) + item_data.quantity
+
     total_price = 0.0
     order_items = []
+    stock_updates = []  # (menu_item, quantity) payment success hone ke baad stock kam hoga
 
-    for item_data in order_in.items:
-        menu_item = db.query(MenuItem).filter(
-            MenuItem.id == item_data.menu_item_id,
-            MenuItem.is_available == True
-        ).first()
+    # 3. Har item ki validation
+    for menu_item_id, quantity in requested.items():
+        menu_item = db.query(MenuItem).filter(MenuItem.id == menu_item_id).first()
 
         if not menu_item:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Menu item {item_data.menu_item_id} not found or unavailable"
+                detail=f"Menu item {menu_item_id} not found"
             )
 
-        line_total = round(menu_item.price * item_data.quantity, 2)
+        # Item isi restaurant ka hona chahiye
+        if menu_item.category.restaurant_id != order_in.restaurant_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Menu item '{menu_item.name}' does not belong to this restaurant"
+            )
+
+        if not menu_item.is_available:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Menu item '{menu_item.name}' is currently unavailable"
+            )
+
+        if menu_item.stock is not None and quantity > menu_item.stock:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient stock for '{menu_item.name}'. Requested {quantity}, available {menu_item.stock}"
+            )
+
+        line_total = round(menu_item.price * quantity, 2)
         total_price += line_total
 
-        order_item = OrderItem(
+        order_items.append(OrderItem(
             menu_item_id=menu_item.id,
             item_name=menu_item.name,
             unit_price=menu_item.price,
-            quantity=item_data.quantity,
+            quantity=quantity,
             line_total=line_total
-        )
-        order_items.append(order_item)
+        ))
+        stock_updates.append((menu_item, quantity))
+
+    # 4. Payment simulation
+    payment_ok = order_in.simulate_payment == "PAID"
+
+    if payment_ok:
+        order_status = OrderStatus.PLACED
+        for menu_item, quantity in stock_updates:
+            if menu_item.stock is not None:
+                menu_item.stock -= quantity
+    else:
+        # Payment fail: order record rehta hai magar CANCELLED, aur stock kam nahi hota
+        order_status = OrderStatus.CANCELLED
 
     new_order = Order(
         customer_id=customer_id,
         restaurant_id=order_in.restaurant_id,
         delivery_address=order_in.delivery_address,
         total_price=round(total_price, 2),
-        status=OrderStatus.PLACED,
+        status=order_status,
+        payment_status=order_in.simulate_payment,
         items=order_items
     )
     db.add(new_order)
-    db.commit()
-    db.refresh(new_order)
+    db.flush()
 
-    # Log initial status in history
+    # 5. Pehli history entry
     history_entry = OrderStatusHistory(
         order_id=new_order.id,
         old_status=None,
-        new_status=OrderStatus.PLACED.value,
+        new_status=order_status.value,
         changed_by_user_id=customer_id
     )
     db.add(history_entry)
     db.commit()
+    db.refresh(new_order)
 
     return new_order
 

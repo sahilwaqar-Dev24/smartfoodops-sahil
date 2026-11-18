@@ -1,16 +1,18 @@
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, Field
+from typing import List, Optional, Literal
 from datetime import datetime
 from app.models.order import OrderStatus
 
 class OrderItemCreate(BaseModel):
     menu_item_id: int
-    quantity: int
+    quantity: int = Field(gt=0, description="Quantity must be at least 1")
 
 class OrderCreate(BaseModel):
     restaurant_id: int
     delivery_address: str
     items: List[OrderItemCreate]
+    # Test mode: mentor payment success ya failure simulate kar sakta hai
+    simulate_payment: Literal["PAID", "FAILED"] = "PAID"
 
 class OrderStatusUpdate(BaseModel):
     status: OrderStatus
