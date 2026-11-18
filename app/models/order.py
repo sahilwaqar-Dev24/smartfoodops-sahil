@@ -7,6 +7,7 @@ from app.db.session import Base
 class OrderStatus(str, enum.Enum):
     PLACED = "PLACED"
     ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
     PREPARING = "PREPARING"
     READY = "READY"
     ASSIGNED = "ASSIGNED"
