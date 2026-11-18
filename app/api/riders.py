@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
+from app.models.order import Order, OrderStatus
 from app.schemas.user import UserResponse
 
 router = APIRouter(prefix="/riders", tags=["Riders"])
@@ -37,6 +38,18 @@ def toggle_my_availability(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only riders can toggle their availability",
         )
+
+    # Delivery ke dauran availability change nahi ho sakti
+    active_delivery = db.query(Order).filter(
+        Order.rider_id == current_user.id,
+        Order.status.in_([OrderStatus.ASSIGNED, OrderStatus.PICKED_UP]),
+    ).first()
+    if active_delivery:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You have an active delivery. Finish it before changing availability",
+        )
+
     current_user.is_available = not current_user.is_available
     db.commit()
     db.refresh(current_user)

@@ -5,12 +5,13 @@ from app.models.restaurant import MenuItem, Restaurant
 from app.models.user import User
 from app.schemas.order import OrderCreate
 
+# PDF: cancellation PICKED_UP se pehle kabhi bhi allowed hai
 VALID_TRANSITIONS = {
     OrderStatus.PLACED: [OrderStatus.ACCEPTED, OrderStatus.CANCELLED],
     OrderStatus.ACCEPTED: [OrderStatus.PREPARING, OrderStatus.CANCELLED],
-    OrderStatus.PREPARING: [OrderStatus.READY],
-    OrderStatus.READY: [OrderStatus.ASSIGNED],
-    OrderStatus.ASSIGNED: [OrderStatus.PICKED_UP],
+    OrderStatus.PREPARING: [OrderStatus.READY, OrderStatus.CANCELLED],
+    OrderStatus.READY: [OrderStatus.ASSIGNED, OrderStatus.CANCELLED],
+    OrderStatus.ASSIGNED: [OrderStatus.PICKED_UP, OrderStatus.CANCELLED],
     OrderStatus.PICKED_UP: [OrderStatus.DELIVERED],
     OrderStatus.DELIVERED: [],
     OrderStatus.CANCELLED: []
@@ -198,6 +199,13 @@ def update_order_status(db: Session, order_id: int, new_status: OrderStatus, cur
             detail=f"Invalid status transition from {order.status} to {new_status}"
         )
 
+    # ASSIGNED sirf assign-rider endpoint se hoga, PATCH se nahi
+    if new_status == OrderStatus.ASSIGNED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use the assign-rider endpoint to assign a rider"
+        )
+
     # Role validation per transition
     if new_status in [OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY]:
         if current_user.role != "restaurant_admin":
@@ -225,8 +233,41 @@ def update_order_status(db: Session, order_id: int, new_status: OrderStatus, cur
                 detail="Only the assigned rider can update this order"
             )
 
+    elif new_status == OrderStatus.CANCELLED:
+        # Sirf order ka apna customer ya us restaurant ka admin cancel kar sakta hai
+        if current_user.role == "customer":
+            if order.customer_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only cancel your own orders"
+                )
+        elif current_user.role == "restaurant_admin":
+            restaurant = db.query(Restaurant).filter(Restaurant.id == order.restaurant_id).first()
+            if not restaurant or restaurant.owner_user_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You are not authorized to cancel orders for this restaurant"
+                )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Riders are not allowed to cancel orders"
+            )
+
     old_status = order.status
     order.status = new_status
+
+    # Cancel hone pe: rider free karo aur stock wapas karo
+    if new_status == OrderStatus.CANCELLED:
+        if order.rider_id:
+            cancelled_rider = db.query(User).filter(User.id == order.rider_id).first()
+            if cancelled_rider:
+                cancelled_rider.is_available = True
+        if order.payment_status == "PAID":
+            for order_item in order.items:
+                menu_item = db.query(MenuItem).filter(MenuItem.id == order_item.menu_item_id).first()
+                if menu_item and menu_item.stock is not None:
+                    menu_item.stock += order_item.quantity
 
     # If delivered, free up the rider
     if new_status == OrderStatus.DELIVERED and order.rider_id:
