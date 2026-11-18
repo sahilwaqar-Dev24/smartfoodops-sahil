@@ -1,70 +1,81 @@
-from typing import Optional
+from datetime import date
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import require_restaurant_admin
 from app.db.session import get_db
-from app.models.restaurant import Restaurant
 from app.models.user import User
-from app.schemas.analytics import AnalyticsSummaryResponse, SearchResponse
+from app.schemas.analytics import (
+    AnalyticsSummaryResponse,
+    RestaurantOrderCount,
+    SearchResponse,
+)
+from app.services import restaurant_service
 from app.services.analytics_service import (
-    get_platform_analytics,
-    get_restaurant_analytics,
+    get_analytics_summary,
+    get_orders_per_restaurant,
+    get_owned_restaurant_ids,
     search_menu_items_tfidf,
 )
 
 router = APIRouter(tags=["Analytics & Search"])
 
 
+def check_date_range(
+    date_from: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[date] = Query(None, description="End date (YYYY-MM-DD), inclusive"),
+):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="date_from cannot be after date_to",
+        )
+    return {"date_from": date_from, "date_to": date_to}
+
+
 @router.get(
     "/analytics/platform",
     response_model=AnalyticsSummaryResponse,
-    summary="Platform-wide aggregated analytics",
+    summary="Analytics for all of my restaurants",
 )
 def view_platform_analytics(
+    dates: dict = Depends(check_date_range),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_restaurant_admin),
 ):
-    if current_user.role != "restaurant_admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Only restaurant admins are authorized to view platform analytics",
-        )
-    return get_platform_analytics(db=db)
+    restaurant_ids = get_owned_restaurant_ids(db, current_user)
+    return get_analytics_summary(db, restaurant_ids, **dates)
+
+
+@router.get(
+    "/analytics/orders-per-restaurant",
+    response_model=List[RestaurantOrderCount],
+    summary="Orders per restaurant (my restaurants)",
+)
+def view_orders_per_restaurant(
+    dates: dict = Depends(check_date_range),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_restaurant_admin),
+):
+    restaurant_ids = get_owned_restaurant_ids(db, current_user)
+    return get_orders_per_restaurant(db, restaurant_ids, **dates)
 
 
 @router.get(
     "/analytics/restaurants/{restaurant_id}",
     response_model=AnalyticsSummaryResponse,
-    summary="Restaurant specific analytics",
+    summary="Analytics for one restaurant",
 )
 def view_restaurant_analytics(
     restaurant_id: int,
+    dates: dict = Depends(check_date_range),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_restaurant_admin),
 ):
-    if current_user.role != "restaurant_admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Only restaurant admins are authorized to view analytics",
-        )
-
-    restaurant = (
-        db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
-    )
-    if not restaurant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Restaurant with ID {restaurant_id} not found",
-        )
-
-    if restaurant.owner_user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: You can only view analytics for your own restaurant",
-        )
-
-    return get_restaurant_analytics(db=db, restaurant_id=restaurant_id)
+    # 404 agar restaurant nahi, 403 agar kisi aur ka hai
+    restaurant_service.get_owned_restaurant(db, restaurant_id, current_user)
+    return get_analytics_summary(db, [restaurant_id], **dates)
 
 
 @router.get(
