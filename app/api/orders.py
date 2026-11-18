@@ -13,14 +13,13 @@ from app.schemas.order import (
     OrderStatusHistoryResponse,
     OrderAssignRider
 )
-from app.schemas.user import UserResponse
 from app.services.order_service import (
     create_order,
     update_order_status,
     assign_rider_to_order
 )
 
-router = APIRouter(tags=["Orders"])
+router = APIRouter(prefix="/orders", tags=["Orders"])
 
 @router.post("/", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
 def place_order(
@@ -42,38 +41,6 @@ def list_orders(
     elif current_user.role == "rider":
         return db.query(Order).filter(Order.rider_id == current_user.id).all()
     return []
-
-@router.get("/riders/available", tags=["Riders"], response_model=List[UserResponse])
-def get_available_riders(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    if current_user.role != "restaurant_admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only restaurant admins can view available riders"
-        )
-    riders = db.query(User).filter(
-        User.role == "rider",
-        User.is_active == True,
-        User.is_available == True
-    ).all()
-    return riders
-
-@router.patch("/riders/me/availability", tags=["Riders"], response_model=UserResponse)
-def toggle_my_availability(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    if current_user.role != "rider":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only riders can toggle their availability"
-        )
-    current_user.is_available = not current_user.is_available
-    db.commit()
-    db.refresh(current_user)
-    return current_user
 
 @router.get("/{order_id}", response_model=OrderResponse)
 def get_order_details(
