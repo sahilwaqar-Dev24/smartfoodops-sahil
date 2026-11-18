@@ -3,8 +3,10 @@ import uuid
 from fastapi import FastAPI, Request
 from app.core.config import settings
 from app.core.logging_config import setup_logging
+from app.core.errors import register_exception_handlers
 from app.api.health import router as health_router
 from app.api.auth import router as auth_router
+from app.api.users import router as users_router
 from app.api.restaurants import router as restaurants_router
 from app.api.orders import router as orders_router
 from app.api.riders import router as riders_router
@@ -26,6 +28,8 @@ app = FastAPI(
     description="SmartFoodOps - Core Food Ordering Backend API"
 )
 
+register_exception_handlers(app)
+
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -46,6 +50,7 @@ async def log_requests(request: Request, call_next):
 # Include Routers
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(users_router)
 app.include_router(restaurants_router)
 app.include_router(orders_router)
 app.include_router(riders_router)
