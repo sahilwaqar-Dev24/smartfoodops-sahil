@@ -5,7 +5,7 @@ from typing import List, Optional
 from app.db.session import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
-from app.models.order import Order, OrderStatusHistory
+from app.models.order import Order, OrderStatus, OrderStatusHistory
 from app.models.restaurant import Restaurant
 from app.schemas.order import (
     OrderCreate,
@@ -85,6 +85,28 @@ def get_order_details(
     current_user: User = Depends(get_current_user)
 ):
     return get_order_or_403(order_id, db, current_user)
+
+
+@router.post("/{order_id}/accept", response_model=OrderResponse)
+def accept_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    return update_order_status(
+        db=db, order_id=order_id, new_status=OrderStatus.ACCEPTED, current_user=current_user
+    )
+
+
+@router.post("/{order_id}/reject", response_model=OrderResponse)
+def reject_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    return update_order_status(
+        db=db, order_id=order_id, new_status=OrderStatus.REJECTED, current_user=current_user
+    )
 
 
 @router.post("/{order_id}/assign-rider", response_model=OrderResponse)

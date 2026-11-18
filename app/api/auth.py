@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -6,6 +7,8 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserResponse, Token
 from app.core.security import hash_password, verify_password, create_access_token
 from app.api.deps import get_current_user
+
+logger = logging.getLogger("smartfoodops.auth")
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -35,6 +38,7 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    logger.info("user_registered user_id=%s role=%s", new_user.id, new_user.role)
     return new_user
 
 @router.post("/login", response_model=Token)
@@ -42,18 +46,21 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     # form_data.username mein email aayegi
     user = db.query(User).filter(User.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.password_hash):
+        logger.warning("login_failed email=%s", form_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if not user.is_active:
+        logger.warning("login_blocked_inactive user_id=%s", user.id)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inactive user account"
         )
 
     access_token = create_access_token(data={"sub": user.email, "role": user.role})
+    logger.info("login_success user_id=%s role=%s", user.id, user.role)
     return {
         "access_token": access_token,
         "token_type": "bearer",

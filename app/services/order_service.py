@@ -1,21 +1,38 @@
+import logging
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.order import Order, OrderItem, OrderStatus, OrderStatusHistory
 from app.models.restaurant import MenuItem, Restaurant
 from app.models.user import User
 from app.schemas.order import OrderCreate
+from app.services.notification_service import create_notification
+
+logger = logging.getLogger("smartfoodops.orders")
 
 # PDF: cancellation PICKED_UP se pehle kabhi bhi allowed hai
 VALID_TRANSITIONS = {
-    OrderStatus.PLACED: [OrderStatus.ACCEPTED, OrderStatus.CANCELLED],
+    OrderStatus.PLACED: [OrderStatus.ACCEPTED, OrderStatus.REJECTED, OrderStatus.CANCELLED],
     OrderStatus.ACCEPTED: [OrderStatus.PREPARING, OrderStatus.CANCELLED],
     OrderStatus.PREPARING: [OrderStatus.READY, OrderStatus.CANCELLED],
     OrderStatus.READY: [OrderStatus.ASSIGNED, OrderStatus.CANCELLED],
     OrderStatus.ASSIGNED: [OrderStatus.PICKED_UP, OrderStatus.CANCELLED],
     OrderStatus.PICKED_UP: [OrderStatus.DELIVERED],
     OrderStatus.DELIVERED: [],
-    OrderStatus.CANCELLED: []
+    OrderStatus.CANCELLED: [],
+    OrderStatus.REJECTED: [],
 }
+
+# Customer ko bheje jaane wale notification messages
+CUSTOMER_MESSAGES = {
+    OrderStatus.ACCEPTED: "Order #{id} accepted by the restaurant",
+    OrderStatus.REJECTED: "Order #{id} was rejected by the restaurant",
+    OrderStatus.PREPARING: "Order #{id} is being prepared",
+    OrderStatus.READY: "Order #{id} is ready for pickup",
+    OrderStatus.PICKED_UP: "Order #{id} has been picked up by the rider",
+    OrderStatus.DELIVERED: "Order #{id} has been delivered",
+    OrderStatus.CANCELLED: "Order #{id} has been cancelled",
+}
+
 
 def create_order(db: Session, order_in: OrderCreate, customer_id: int) -> Order:
     # 1. Restaurant check
@@ -115,9 +132,22 @@ def create_order(db: Session, order_in: OrderCreate, customer_id: int) -> Order:
         changed_by_user_id=customer_id
     )
     db.add(history_entry)
+
+    # 6. Notifications (usi request ke andar)
+    if payment_ok:
+        create_notification(db, customer_id, f"Order #{new_order.id} placed successfully", new_order.id)
+        create_notification(db, restaurant.owner_user_id, f"New order #{new_order.id} received", new_order.id)
+    else:
+        create_notification(db, customer_id, f"Payment failed for order #{new_order.id}. Order cancelled", new_order.id)
+
     db.commit()
     db.refresh(new_order)
 
+    logger.info(
+        "order_created order_id=%s customer_id=%s restaurant_id=%s total=%s payment=%s status=%s",
+        new_order.id, customer_id, order_in.restaurant_id, new_order.total_price,
+        new_order.payment_status, order_status.value
+    )
     return new_order
 
 def assign_rider_to_order(db: Session, order_id: int, current_user: User, rider_id: int = None) -> Order:
@@ -154,6 +184,7 @@ def assign_rider_to_order(db: Session, order_id: int, current_user: User, rider_
             User.is_available == True
         ).first()
         if not rider:
+            logger.warning("rider_assign_failed order_id=%s reason=selected_rider_unavailable rider_id=%s", order_id, rider_id)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Selected rider is not available or does not exist"
@@ -165,6 +196,7 @@ def assign_rider_to_order(db: Session, order_id: int, current_user: User, rider_
             User.is_available == True
         ).first()
         if not rider:
+            logger.warning("rider_assign_failed order_id=%s reason=no_available_rider", order_id)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No available riders found"
@@ -182,8 +214,14 @@ def assign_rider_to_order(db: Session, order_id: int, current_user: User, rider_
         changed_by_user_id=current_user.id
     )
     db.add(history_entry)
+
+    create_notification(db, order.customer_id, f"A rider has been assigned to order #{order.id}", order.id)
+    create_notification(db, rider.id, f"You have been assigned delivery for order #{order.id}", order.id)
+
     db.commit()
     db.refresh(order)
+
+    logger.info("rider_assigned order_id=%s rider_id=%s by_user_id=%s", order.id, rider.id, current_user.id)
     return order
 
 def update_order_status(db: Session, order_id: int, new_status: OrderStatus, current_user: User) -> Order:
@@ -194,9 +232,13 @@ def update_order_status(db: Session, order_id: int, new_status: OrderStatus, cur
     # State machine transition check
     allowed_transitions = VALID_TRANSITIONS.get(order.status, [])
     if new_status not in allowed_transitions:
+        logger.warning(
+            "invalid_transition order_id=%s from=%s to=%s user_id=%s",
+            order.id, order.status.value, new_status.value, current_user.id
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Invalid status transition from {order.status} to {new_status}"
+            detail=f"Invalid status transition from {order.status.value} to {new_status.value}"
         )
 
     # ASSIGNED sirf assign-rider endpoint se hoga, PATCH se nahi
@@ -206,14 +248,15 @@ def update_order_status(db: Session, order_id: int, new_status: OrderStatus, cur
             detail="Use the assign-rider endpoint to assign a rider"
         )
 
+    restaurant = db.query(Restaurant).filter(Restaurant.id == order.restaurant_id).first()
+
     # Role validation per transition
-    if new_status in [OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY]:
+    if new_status in [OrderStatus.ACCEPTED, OrderStatus.REJECTED, OrderStatus.PREPARING, OrderStatus.READY]:
         if current_user.role != "restaurant_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only restaurant admins are authorized to perform this action"
             )
-        restaurant = db.query(Restaurant).filter(Restaurant.id == order.restaurant_id).first()
         if not restaurant or restaurant.owner_user_id != current_user.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -242,7 +285,6 @@ def update_order_status(db: Session, order_id: int, new_status: OrderStatus, cur
                     detail="You can only cancel your own orders"
                 )
         elif current_user.role == "restaurant_admin":
-            restaurant = db.query(Restaurant).filter(Restaurant.id == order.restaurant_id).first()
             if not restaurant or restaurant.owner_user_id != current_user.id:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -257,12 +299,12 @@ def update_order_status(db: Session, order_id: int, new_status: OrderStatus, cur
     old_status = order.status
     order.status = new_status
 
-    # Cancel hone pe: rider free karo aur stock wapas karo
-    if new_status == OrderStatus.CANCELLED:
+    # Cancel ya reject hone pe: rider free karo aur stock wapas karo
+    if new_status in [OrderStatus.CANCELLED, OrderStatus.REJECTED]:
         if order.rider_id:
-            cancelled_rider = db.query(User).filter(User.id == order.rider_id).first()
-            if cancelled_rider:
-                cancelled_rider.is_available = True
+            freed_rider = db.query(User).filter(User.id == order.rider_id).first()
+            if freed_rider:
+                freed_rider.is_available = True
         if order.payment_status == "PAID":
             for order_item in order.items:
                 menu_item = db.query(MenuItem).filter(MenuItem.id == order_item.menu_item_id).first()
@@ -282,6 +324,21 @@ def update_order_status(db: Session, order_id: int, new_status: OrderStatus, cur
         changed_by_user_id=current_user.id
     )
     db.add(history_entry)
+
+    # Notifications
+    message = CUSTOMER_MESSAGES[new_status].format(id=order.id)
+    create_notification(db, order.customer_id, message, order.id)
+    if new_status == OrderStatus.CANCELLED:
+        if order.rider_id:
+            create_notification(db, order.rider_id, f"Order #{order.id} was cancelled", order.id)
+        if current_user.role == "customer" and restaurant:
+            create_notification(db, restaurant.owner_user_id, f"Order #{order.id} was cancelled by the customer", order.id)
+
     db.commit()
     db.refresh(order)
+
+    logger.info(
+        "order_status_changed order_id=%s from=%s to=%s by_user_id=%s",
+        order.id, old_status.value, new_status.value, current_user.id
+    )
     return order
