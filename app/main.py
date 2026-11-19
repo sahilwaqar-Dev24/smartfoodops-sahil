@@ -12,6 +12,7 @@ from app.api.orders import router as orders_router
 from app.api.riders import router as riders_router
 from app.api.notifications import router as notifications_router
 from app.api.analytics import router as analytics_router
+from app.api.search import router as search_router
 from app.api.assistant import router as assistant_router
 from app.db.session import engine, Base
 import app.models  # saare models register karta hai (notifications table bhi)
@@ -56,6 +57,7 @@ app.include_router(orders_router)
 app.include_router(riders_router)
 app.include_router(notifications_router)
 app.include_router(analytics_router)
+app.include_router(search_router)
 app.include_router(assistant_router)
 
 

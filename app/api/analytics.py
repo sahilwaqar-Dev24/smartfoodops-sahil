@@ -9,17 +9,15 @@ from app.models.user import User
 from app.schemas.analytics import (
     AnalyticsSummaryResponse,
     RestaurantOrderCount,
-    SearchResponse,
 )
 from app.services import restaurant_service
 from app.services.analytics_service import (
     get_analytics_summary,
     get_orders_per_restaurant,
     get_owned_restaurant_ids,
-    search_menu_items_tfidf,
 )
 
-router = APIRouter(tags=["Analytics & Search"])
+router = APIRouter(tags=["Analytics"])
 
 
 def check_date_range(
@@ -76,22 +74,3 @@ def view_restaurant_analytics(
     # 404 agar restaurant nahi, 403 agar kisi aur ka hai
     restaurant_service.get_owned_restaurant(db, restaurant_id, current_user)
     return get_analytics_summary(db, [restaurant_id], **dates)
-
-
-@router.get(
-    "/search/menu-items",
-    response_model=SearchResponse,
-    summary="Intelligent TF-IDF menu item search",
-)
-def search_menu_items(
-    q: str = Query(..., min_length=1, description="Search query keyword or phrase"),
-    max_price: Optional[float] = Query(
-        None, gt=0, description="Optional maximum price filter"
-    ),
-    top_k: int = Query(5, ge=1, le=20, description="Max results to return"),
-    db: Session = Depends(get_db),
-):
-    results = search_menu_items_tfidf(
-        db=db, query=q, max_price=max_price, top_k=top_k
-    )
-    return SearchResponse(query=q, count=len(results), results=results)

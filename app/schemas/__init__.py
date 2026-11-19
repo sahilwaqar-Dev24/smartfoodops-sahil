@@ -1,8 +1,8 @@
 from app.schemas.analytics import (
     AnalyticsSummaryResponse,
-    SearchResponse,
-    SearchResultItem,
+    RestaurantOrderCount,
 )
+from app.schemas.notification import NotificationResponse
 from app.schemas.order import (
     OrderAssignRider,
     OrderCreate,
@@ -14,6 +14,7 @@ from app.schemas.order import (
 from app.schemas.restaurant import (
     MenuCategoryCreate,
     MenuCategoryResponse,
+    MenuCategoryUpdate,
     MenuItemCreate,
     MenuItemResponse,
     MenuItemUpdate,
@@ -21,6 +22,7 @@ from app.schemas.restaurant import (
     RestaurantResponse,
     RestaurantUpdate,
 )
+from app.schemas.search import SearchResponse, SearchResultItem
 from app.schemas.user import Token, TokenData, UserCreate, UserResponse
 
 __all__ = [
@@ -32,6 +34,7 @@ __all__ = [
     "RestaurantUpdate",
     "RestaurantResponse",
     "MenuCategoryCreate",
+    "MenuCategoryUpdate",
     "MenuCategoryResponse",
     "MenuItemCreate",
     "MenuItemUpdate",
@@ -43,6 +46,8 @@ __all__ = [
     "OrderStatusHistoryResponse",
     "OrderItemResponse",
     "AnalyticsSummaryResponse",
+    "RestaurantOrderCount",
+    "NotificationResponse",
     "SearchResponse",
     "SearchResultItem",
 ]

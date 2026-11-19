@@ -2,11 +2,9 @@ from datetime import date, datetime, time, timedelta
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, case, func
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 from app.models.order import Order, OrderStatus
-from app.models.restaurant import MenuItem, Restaurant
+from app.models.restaurant import Restaurant
 from app.models.user import User
 
 
@@ -92,57 +90,3 @@ def get_analytics_summary(
         "date_to": date_to,
         "orders_per_restaurant": get_orders_per_restaurant(db, restaurant_ids, date_from, date_to),
     }
-
-
-def search_menu_items_tfidf(
-    db: Session,
-    query: str,
-    max_price: Optional[float] = None,
-    top_k: int = 5,
-):
-    items_query = db.query(MenuItem).filter(MenuItem.is_available == True)
-    if max_price is not None:
-        items_query = items_query.filter(MenuItem.price <= max_price)
-
-    items = items_query.all()
-    if not items or not query.strip():
-        return []
-
-    # Documents corpus (Name + Description)
-    documents = [
-        f"{item.name} {item.description or ''}".strip()
-        for item in items
-    ]
-
-    vectorizer = TfidfVectorizer(stop_words="english")
-    tfidf_matrix = vectorizer.fit_transform(documents)
-    query_vector = vectorizer.transform([query])
-
-    # Cosine Similarity calculation
-    similarity = cosine_similarity(query_vector, tfidf_matrix).flatten()
-
-    scored_items = []
-    for idx, score in enumerate(similarity):
-        if score > 0.05:  # relevance threshold
-            item = items[idx]
-            restaurant_name = (
-                item.category.restaurant.name
-                if item.category and item.category.restaurant
-                else "Unknown"
-            )
-            restaurant_id = (
-                item.category.restaurant_id if item.category else 0
-            )
-
-            scored_items.append({
-                "id": item.id,
-                "restaurant_id": restaurant_id,
-                "restaurant_name": restaurant_name,
-                "name": item.name,
-                "description": item.description,
-                "price": item.price,
-                "similarity_score": round(float(score), 4),
-            })
-
-    scored_items.sort(key=lambda x: x["similarity_score"], reverse=True)
-    return scored_items[:top_k]
