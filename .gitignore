@@ -1,16 +1,21 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Virtual environments
 .venv/
 venv/
 ENV/
+
+# Secrets (kabhi commit nahi karna)
 .env
-smartfoodops.db
-*.sqlite3
-.pytest_cache/
-smartfoodops.db
+
+# Database files
 *.db
 *.sqlite3
-__pycache__/
-*.pyc
+
+# Test and coverage output
 .pytest_cache/
+.coverage
+htmlcov/
