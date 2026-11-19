@@ -198,8 +198,8 @@ def assign_rider_to_order(db: Session, order_id: int, current_user: User, rider_
         if not rider:
             logger.warning("rider_assign_failed order_id=%s reason=no_available_rider", order_id)
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No available riders found"
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No rider is available right now. The order stays READY, please try again shortly"
             )
 
     old_status = order.status
