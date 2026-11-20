@@ -1,38 +1,52 @@
-# Engineering Notes and Decision Log - SmartFoodOps
+# Engineering Notes – SmartFoodOps
 
-Handwritten technical notes, architectural tradeoffs, and issue debugging logs recorded during the development of SmartFoodOps.
+Progress tracker, decisions and problems solved while building the project.
 
----
+## 1. Progress tracker
 
-## 1. Module Development Progress
+| Task | Status | Notes |
+|------|--------|-------|
+| Project setup, `/health`, settings | Done | Layered folders, SQLite, `.env` for secrets |
+| Auth, JWT, roles | Done | bcrypt hashes, three roles, `/users/me` |
+| Restaurants, menus | Done | Owner checks, search, pagination, delete rules |
+| Orders, pricing, stock | Done | Server-side prices, price snapshot, simulated payment |
+| Status flow, history | Done | One transition map, 409 on invalid jumps |
+| Riders | Done | First-available assignment, availability lock during delivery |
+| Notifications, logging, errors | Done | Notification rows, Python logging, one JSON error format |
+| Analytics | Done | Totals, average, per restaurant, date filters |
+| Search and assistant | Done | TF-IDF ranking, filters, rule-based assistant |
+| Tests | Done | 95 tests, about 96% coverage |
+| Docs | Done | README, design, ERD, PRD, demo script |
 
-| Module | Scope / Domain | Status | Observations & Notes |
-| :--- | :--- | :--- | :--- |
-| **Module 1** | Foundation & Project Setup | Completed | Established clean layered directory hierarchy, SQLite connection, base configuration, and `/health` route. |
-| **Module 2** | Authentication & RBAC | Completed | Integrated JWT bearer tokens using Passlib and bcrypt. Added registration and login for `customer`, `restaurant_admin`, and `rider`. |
-| **Module 3** | Restaurants & Catalogs | Completed | Implemented multi-tenant restaurants, categories, menu items CRUD, stock tracking, and owner validation guards. |
-| **Module 4** | Orders & State Machine | Completed | Built dynamic server-side total price calculations, sequential status machine (`PLACED` -> `READY`), and 409 Conflict jump guards. |
-| **Module 5** | Rider Dispatch & Delivery | Completed | Added rider `is_available` toggle, automated dispatch, and full delivery state lifecycle (`PICKED_UP` -> `DELIVERED`). |
-| **Module 6** | Analytics & TF-IDF Search | Completed | Platform and restaurant sales aggregation queries, plus scikit-learn TF-IDF Vectorizer and cosine similarity search. |
-| **Module 7** | Testing & Seeding | Completed | Implemented 12 automated pytest cases with an in-memory SQLite fixture and an idempotent `seed.py` data script. |
+## 2. Review round (problems found and fixed)
 
----
+A full review against the assignment PDFs found these problems. All are fixed:
 
-## 2. Technical Decisions & Bug Fixes
+- Orders routes had no `/orders` prefix, so the URLs were wrong.
+- Stock was not checked or reduced, closed restaurants accepted orders, items from another restaurant were accepted, negative quantities were accepted.
+- Any user could cancel or read any order. Admins could see every order.
+- No `REJECTED` status, no notifications table, no logging, no payment simulation.
+- No restaurant search, pagination or delete endpoints.
+- JWT secret was written in the code (now read from `.env`).
+- Errors had different shapes and could leak internal details.
+- Passwords of any length were accepted.
+- Auth, restaurant and search logic sat inside routes or in the wrong service.
+- Tests were weak (14 happy-path tests), now 95 tests including permission and failure cases.
 
-### Python 3.14 Build Tools Failure
-- **Issue**: Running `pip install -r requirements.txt` on global Python 3.14 threw C++ build compiler errors when compiling wheels for scikit-learn.
-- **Fix**: Targeted the locally available Python 3.12 (64-bit) installation and generated a clean `.venv` environment to use stable pre-built binary wheels.
+## 3. Technical decisions
 
-### Bcrypt 5.x & Passlib Incompatibility
-- **Issue**: Encountered `AttributeError: module 'bcrypt' has no attribute '__about__'` during user registration testing.
-- **Fix**: The latest passlib version requires an older bcrypt version. Pinned `bcrypt==4.0.1` inside `requirements.txt` to eliminate the regression.
+- **Server-side pricing:** the client sends only item ids and quantities. The price comes from the database and is copied into `order_items`.
+- **One transition map:** `VALID_TRANSITIONS` in `order_service.py` is the only place that decides which status changes are allowed.
+- **`ASSIGNED` only via `assign-rider`:** it must also pick a rider and mark the rider unavailable, so it cannot be set by a plain status update.
+- **Delete rule:** a menu item or category that appears in past orders cannot be deleted (409). The admin marks it unavailable.
+- **Analytics scope:** an admin sees only their own restaurants.
+- **Search threshold:** results below cosine similarity 0.05 are dropped so unrelated queries return an empty list.
 
-### Server-Side Price Verification
-- **Decision**: Client payloads only supply menu item IDs and quantities. The backend fetches authoritative prices directly from the `menu_items` table at order creation to completely prevent client-side price tampering.
+## 4. Errors I solved
 
-### Strict State-Machine Transitions
-- **Decision**: Forced orders to follow a strict linear progression (`PLACED` -> `ACCEPTED` -> `PREPARING` -> `READY` -> `ASSIGNED` -> `PICKED_UP` -> `DELIVERED`). Skipping steps or invalid transitions returns an explicit HTTP `409 Conflict`. All transitions are recorded in `order_status_history`.
-
-### TF-IDF Search Cutoff Threshold
-- **Decision**: Filtered TF-IDF vector similarity results with a minimum cosine similarity threshold of `0.05` so that completely irrelevant menu queries return an empty list rather than weak matches.
+- **Python 3.14 build error:** `pip install -r requirements.txt` failed while building scikit-learn.
+  Fix: use Python 3.12 and a fresh `.venv`, which has ready-made wheels.
+- **bcrypt and passlib:** `AttributeError: module 'bcrypt' has no attribute '__about__'` appeared at registration.
+  Fix: pin `bcrypt==4.0.1` in `requirements.txt`.
+- **`.env` was required after the secret was moved out of the code:** tests set a test secret in `tests/conftest.py`, so they run without a `.env`.
+- **Slow tests:** every test registers users and bcrypt hashing is slow on purpose, so the full run takes a few minutes.
