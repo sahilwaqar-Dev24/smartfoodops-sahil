@@ -1,16 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
-from typing import List
 
 from app.db.session import get_db
 from app.models.user import User
-from app.models.restaurant import Restaurant, MenuCategory, MenuItem
 from app.schemas.restaurant import (
     RestaurantCreate, RestaurantUpdate, RestaurantResponse,
-    MenuCategoryCreate, MenuCategoryResponse,
+    MenuCategoryCreate, MenuCategoryUpdate, MenuCategoryResponse,
     MenuItemCreate, MenuItemUpdate, MenuItemResponse
 )
-from app.api.deps import get_current_user, require_restaurant_admin
+from app.api.deps import require_restaurant_admin
+from app.services import restaurant_service
 
 router = APIRouter(prefix="/restaurants", tags=["Restaurants & Menus"])
 
@@ -23,31 +23,32 @@ def create_restaurant(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_restaurant_admin)
 ):
-    restaurant = Restaurant(
-        owner_user_id=current_user.id,
-        name=restaurant_in.name,
-        description=restaurant_in.description,
-        cuisine=restaurant_in.cuisine,
-        address=restaurant_in.address,
-        is_open=restaurant_in.is_open if restaurant_in.is_open is not None else True
-    )
-    db.add(restaurant)
-    db.commit()
-    db.refresh(restaurant)
-    return restaurant
+    return restaurant_service.create_restaurant(db, restaurant_in, current_user)
 
 
 @router.get("/", response_model=List[RestaurantResponse])
-def list_restaurants(db: Session = Depends(get_db)):
-    return db.query(Restaurant).filter(Restaurant.is_open == True).all()
+def list_restaurants(
+    name: Optional[str] = Query(None, description="Search by restaurant name"),
+    cuisine: Optional[str] = Query(None, description="Filter by cuisine"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
+    return restaurant_service.list_open_restaurants(db, name=name, cuisine=cuisine, limit=limit, offset=offset)
+
+
+# NOTE: "/mine" ko "/{restaurant_id}" se pehle rakhna zaroori hai
+@router.get("/mine", response_model=List[RestaurantResponse])
+def list_my_restaurants(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_restaurant_admin)
+):
+    return restaurant_service.list_owned_restaurants(db, current_user)
 
 
 @router.get("/{restaurant_id}", response_model=RestaurantResponse)
 def get_restaurant(restaurant_id: int, db: Session = Depends(get_db)):
-    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
-    if not restaurant:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
-    return restaurant
+    return restaurant_service.get_restaurant(db, restaurant_id)
 
 
 @router.patch("/{restaurant_id}", response_model=RestaurantResponse)
@@ -57,20 +58,7 @@ def update_restaurant(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_restaurant_admin)
 ):
-    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
-    if not restaurant:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
-    if restaurant.owner_user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to edit this restaurant")
-
-    update_data = restaurant_in.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(restaurant, field, value)
-
-    db.add(restaurant)
-    db.commit()
-    db.refresh(restaurant)
-    return restaurant
+    return restaurant_service.update_restaurant(db, restaurant_id, restaurant_in, current_user)
 
 
 # --- Menu Category Endpoints ---
@@ -82,26 +70,32 @@ def add_category(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_restaurant_admin)
 ):
-    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
-    if not restaurant:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
-    if restaurant.owner_user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to manage this restaurant")
-
-    category = MenuCategory(
-        restaurant_id=restaurant_id,
-        name=category_in.name,
-        order_index=category_in.order_index or 0
-    )
-    db.add(category)
-    db.commit()
-    db.refresh(category)
-    return category
+    return restaurant_service.add_category(db, restaurant_id, category_in, current_user)
 
 
 @router.get("/{restaurant_id}/categories", response_model=List[MenuCategoryResponse])
 def list_categories(restaurant_id: int, db: Session = Depends(get_db)):
-    return db.query(MenuCategory).filter(MenuCategory.restaurant_id == restaurant_id).order_by(MenuCategory.order_index).all()
+    return restaurant_service.list_categories(db, restaurant_id)
+
+
+@router.patch("/categories/{category_id}", response_model=MenuCategoryResponse)
+def update_category(
+    category_id: int,
+    category_in: MenuCategoryUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_restaurant_admin)
+):
+    return restaurant_service.update_category(db, category_id, category_in, current_user)
+
+
+@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_category(
+    category_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_restaurant_admin)
+):
+    restaurant_service.delete_category(db, category_id, current_user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # --- Menu Item Endpoints ---
@@ -113,31 +107,21 @@ def add_menu_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_restaurant_admin)
 ):
-    category = db.query(MenuCategory).filter(MenuCategory.id == category_id).first()
-    if not category:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
-
-    restaurant = db.query(Restaurant).filter(Restaurant.id == category.restaurant_id).first()
-    if restaurant.owner_user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to manage this restaurant's menu")
-
-    menu_item = MenuItem(
-        category_id=category_id,
-        name=item_in.name,
-        description=item_in.description,
-        price=item_in.price,
-        is_available=item_in.is_available if item_in.is_available is not None else True,
-        stock=item_in.stock if item_in.stock is not None else 100
-    )
-    db.add(menu_item)
-    db.commit()
-    db.refresh(menu_item)
-    return menu_item
+    return restaurant_service.add_menu_item(db, category_id, item_in, current_user)
 
 
 @router.get("/categories/{category_id}/items", response_model=List[MenuItemResponse])
 def list_menu_items(category_id: int, db: Session = Depends(get_db)):
-    return db.query(MenuItem).filter(MenuItem.category_id == category_id, MenuItem.is_available == True).all()
+    return restaurant_service.list_available_items(db, category_id)
+
+
+@router.get("/categories/{category_id}/all-items", response_model=List[MenuItemResponse])
+def list_all_menu_items_for_owner(
+    category_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_restaurant_admin)
+):
+    return restaurant_service.list_all_items_for_owner(db, category_id, current_user)
 
 
 @router.patch("/items/{item_id}", response_model=MenuItemResponse)
@@ -147,20 +131,14 @@ def update_menu_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_restaurant_admin)
 ):
-    menu_item = db.query(MenuItem).filter(MenuItem.id == item_id).first()
-    if not menu_item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Menu item not found")
+    return restaurant_service.update_menu_item(db, item_id, item_in, current_user)
 
-    category = db.query(MenuCategory).filter(MenuCategory.id == menu_item.category_id).first()
-    restaurant = db.query(Restaurant).filter(Restaurant.id == category.restaurant_id).first()
-    if restaurant.owner_user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have permission to edit this item")
 
-    update_data = item_in.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(menu_item, field, value)
-
-    db.add(menu_item)
-    db.commit()
-    db.refresh(menu_item)
-    return menu_item
+@router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_menu_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_restaurant_admin)
+):
+    restaurant_service.delete_menu_item(db, item_id, current_user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

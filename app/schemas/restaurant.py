@@ -1,23 +1,23 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
 # --- Restaurant Schemas ---
 class RestaurantBase(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=100)
     description: Optional[str] = None
-    cuisine: Optional[str] = None
-    address: str
+    cuisine: Optional[str] = Field(default=None, max_length=50)
+    address: str = Field(min_length=1, max_length=255)
     is_open: Optional[bool] = True
 
 class RestaurantCreate(RestaurantBase):
     pass
 
 class RestaurantUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     description: Optional[str] = None
-    cuisine: Optional[str] = None
-    address: Optional[str] = None
+    cuisine: Optional[str] = Field(default=None, max_length=50)
+    address: Optional[str] = Field(default=None, min_length=1, max_length=255)
     is_open: Optional[bool] = None
 
 class RestaurantResponse(RestaurantBase):
@@ -31,11 +31,15 @@ class RestaurantResponse(RestaurantBase):
 
 # --- Menu Category Schemas ---
 class MenuCategoryBase(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=50)
     order_index: Optional[int] = 0
 
 class MenuCategoryCreate(MenuCategoryBase):
     pass
+
+class MenuCategoryUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    order_index: Optional[int] = None
 
 class MenuCategoryResponse(MenuCategoryBase):
     id: int
@@ -47,21 +51,21 @@ class MenuCategoryResponse(MenuCategoryBase):
 
 # --- Menu Item Schemas ---
 class MenuItemBase(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=100)
     description: Optional[str] = None
-    price: float
+    price: float = Field(gt=0, description="Price must be greater than 0")
     is_available: Optional[bool] = True
-    stock: Optional[int] = 100
+    stock: Optional[int] = Field(default=100, ge=0, description="Stock cannot be negative")
 
 class MenuItemCreate(MenuItemBase):
     pass
 
 class MenuItemUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     description: Optional[str] = None
-    price: Optional[float] = None
+    price: Optional[float] = Field(default=None, gt=0)
     is_available: Optional[bool] = None
-    stock: Optional[int] = None
+    stock: Optional[int] = Field(default=None, ge=0)
 
 class MenuItemResponse(MenuItemBase):
     id: int

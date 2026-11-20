@@ -8,6 +8,9 @@ import sys
 # Project root directory ko Python search path mein include karna
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+# Tests ke liye JWT secret (real .env ki zarurat nahi)
+os.environ.setdefault("JWT_SECRET", "test-secret-key-for-pytest-only-1234")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

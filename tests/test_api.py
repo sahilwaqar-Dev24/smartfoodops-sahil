@@ -1,7 +1,3 @@
-"""
-SmartFoodOps Automated Test Suite
-Covers: Health, Auth, Restaurants, Orders lifecycle, Rider RBAC, and TF-IDF Search.
-"""
 import pytest
 
 
@@ -80,13 +76,7 @@ def test_get_menu_items(client, seeded_restaurant):
 
 
 def _create_order_request(client, headers, payload):
-    # Support both /orders/ and /orders endpoints based on router registration
-    res = client.post("/orders/", json=payload, headers=headers)
-    if res.status_code == 405 or res.status_code == 404:
-        res = client.post("/orders", json=payload, headers=headers)
-    if res.status_code == 405 or res.status_code == 404:
-        res = client.post("/", json=payload, headers=headers)
-    return res
+    return client.post("/orders/", json=payload, headers=headers)
 
 
 # 8. Order: Place Order Successfully (Dynamic Price Calculation)
@@ -139,18 +129,11 @@ def test_invalid_order_status_jump(client, seeded_restaurant, seeded_users):
     admin_token = admin_login.json()["access_token"]
 
     status_payload = {"status": "DELIVERED"}
-    # Try both standard status endpoints
     invalid_res = client.patch(
         f"/orders/{order_id}/status",
         json=status_payload,
         headers={"Authorization": f"Bearer {admin_token}"},
     )
-    if invalid_res.status_code == 404:
-        invalid_res = client.patch(
-            f"/{order_id}/status",
-            json=status_payload,
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
     assert invalid_res.status_code == 409
 
 
@@ -188,7 +171,9 @@ def test_analytics_rbac_guard(client, seeded_users):
         "/analytics/platform", headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == 403
-    # 13. Assistant: Recommendation Test
+
+
+# 13. Assistant: Recommendation Test
 def test_assistant_recommendation_success(client, seeded_restaurant):
     payload = {"question": "I want a spicy burger", "max_price": 600.0}
     response = client.post("/assistant/recommend", json=payload)
